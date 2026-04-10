@@ -26,8 +26,8 @@ STEPS=(
     "06:Configure rclone:scripts/06_configure_rclone.sh"
     "07:Configure Nextcloud:scripts/07_configure_nextcloud.sh"
     "08:Connect tunnel:scripts/08_connect_tunnel.sh"
-    "09:Run Nextcloud:scripts/09_run_nextcloud.sh"
-    "10:Secure admin:scripts/10_secure_admin.sh"
+    "09:Protect admin panel:scripts/09_protect_adminpanel.sh"
+    "10:Run Nextcloud:scripts/10_run_nextcloud.sh"
 )
 
 declare -A STEP_STATUS

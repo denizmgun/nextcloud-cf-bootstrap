@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 09_run_nextcloud.sh — Pull and start Nextcloud AIO via Docker Compose.
+# 10_run_nextcloud.sh — Pull and start Nextcloud AIO via Docker Compose.
 set -euo pipefail
 trap 'log_error "Error in ${BASH_SOURCE[0]} at line ${LINENO}"' ERR
 
@@ -13,7 +13,7 @@ COMPOSE_FILE="${HOME}/.nextcloud/docker-compose.yml"
 HEALTH_TIMEOUT=120
 HEALTH_INTERVAL=5
 
-log_info "Step 09: Run Nextcloud AIO"
+log_info "Step 10: Run Nextcloud AIO"
 
 # ── Prerequisites ─────────────────────────────────────────────────────────────
 if [[ ! -f "$COMPOSE_FILE" ]]; then
@@ -89,7 +89,16 @@ else
     echo "  Admin panel:  https://<ADMIN_HOSTNAME>:8080"
 fi
 echo ""
-echo "  Run script 10 to retrieve your initial passphrase."
+echo "  !! COMPLETE FIRST LOGIN NOW !!"
+echo ""
+echo "  The initial passphrase is displayed on the admin"
+echo "  panel's first page. Until you log in and dismiss"
+echo "  it, Cloudflare Access is the only barrier — anyone"
+echo "  who clears it can read the passphrase off the screen."
+echo ""
+echo "  Open the URL above in your browser immediately."
+echo "  Do not leave this session unattended until first"
+echo "  login is complete and Nextcloud setup has started."
 echo "════════════════════════════════════════════════════"
 echo ""
 

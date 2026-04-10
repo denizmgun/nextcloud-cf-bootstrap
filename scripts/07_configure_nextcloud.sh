@@ -36,7 +36,7 @@ NC_DOMAIN=""
 BACKUP_LOCATION=""
 
 prompt_optional NC_DATADIR \
-    "Absolute path for Nextcloud data directory" "/opt/nextcloud/data"
+    "Absolute path for Nextcloud data directory" "/var/lib/nextcloud/data"
 
 prompt_optional NC_TIMEZONE \
     "Server timezone (IANA format, e.g. Europe/Berlin)" "$_sys_tz"
@@ -49,9 +49,23 @@ else
         "Main domain for Nextcloud (e.g. nextcloud.example.com)"
 fi
 
-_backup_default="${_existing_rclone_mount:-/opt/nextcloud/backup}"
+_backup_default="${_existing_rclone_mount:-/var/lib/nextcloud/backup}"
 prompt_optional BACKUP_LOCATION \
     "Absolute path for AIO backups" "$_backup_default"
+
+# ── Create directories ────────────────────────────────────────────────────────
+log_info "Creating Nextcloud data directory: ${NC_DATADIR}"
+mkdir -p "$NC_DATADIR"
+
+# Only create BACKUP_LOCATION if it is not an rclone mount point — the rclone
+# systemd unit (script 06) owns that directory; creating it here before the
+# mount is active would leave an empty directory that hides mount failures.
+if [[ "$BACKUP_LOCATION" != "$_existing_rclone_mount" || -z "$_existing_rclone_mount" ]]; then
+    log_info "Creating backup directory: ${BACKUP_LOCATION}"
+    mkdir -p "$BACKUP_LOCATION"
+else
+    log_info "Backup location is the rclone mount point — skipping mkdir (mount unit owns it)."
+fi
 
 # ── Persist to .env ───────────────────────────────────────────────────────────
 env_set "NC_DATADIR"        "$NC_DATADIR"        "$ENV_FILE"

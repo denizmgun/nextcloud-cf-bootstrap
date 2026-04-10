@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 08_connect_tunnel.sh — Install cloudflared as a systemd service and verify the tunnel is live.
+# Uses credentials-file auth (cert.pem + tunnel JSON) — no token required.
 set -euo pipefail
 trap 'log_error "Error in ${BASH_SOURCE[0]} at line ${LINENO}"' ERR
 
@@ -8,8 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 ENV_FILE="${HOME}/.nextcloud/.env"
-CF_ENV_FILE="${HOME}/.cloudflared/.env"
 CF_CONFIG="${HOME}/.cloudflared/config.yml"
+CF_CERT="${HOME}/.cloudflared/cert.pem"
 
 MAX_RETRIES=5
 RETRY_INTERVAL=5
@@ -21,27 +22,25 @@ if [[ ! -f "$CF_CONFIG" ]]; then
     log_error "Tunnel config not found at ${CF_CONFIG}. Run script 05 first."
     exit 1
 fi
-if [[ ! -f "$CF_ENV_FILE" ]]; then
-    log_error "Tunnel token file not found at ${CF_ENV_FILE}. Run script 05 first."
+if [[ ! -f "$CF_CERT" ]]; then
+    log_error "Cloudflare credentials not found at ${CF_CERT}. Run script 05 first."
     exit 1
 fi
 
-# shellcheck source=/dev/null
-source "$CF_ENV_FILE"
-if [[ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]]; then
-    log_error "CLOUDFLARE_TUNNEL_TOKEN is not set in ${CF_ENV_FILE}."
-    exit 1
+# ── Install as systemd service (idempotent) ───────────────────────────────────
+if systemctl list-unit-files cloudflared.service &>/dev/null \
+        && systemctl list-unit-files cloudflared.service | grep -q "cloudflared"; then
+    log_info "cloudflared service unit already installed. Skipping service install."
+else
+    log_info "Installing cloudflared as a systemd service..."
+    cloudflared service install
 fi
-
-# ── Install as systemd service ────────────────────────────────────────────────
-log_info "Installing cloudflared as a systemd service..."
-cloudflared service install "$CLOUDFLARE_TUNNEL_TOKEN"
 
 log_info "Enabling and starting cloudflared..."
 systemctl enable --now cloudflared
 
 # ── Poll for service health ───────────────────────────────────────────────────
-log_info "Waiting for cloudflared service to become active (up to $((MAX_RETRIES * RETRY_INTERVAL))s)..."
+log_info "Waiting for cloudflared to become active (up to $((MAX_RETRIES * RETRY_INTERVAL))s)..."
 TUNNEL_ACTIVE=false
 for i in $(seq 1 $MAX_RETRIES); do
     if systemctl is-active --quiet cloudflared; then
@@ -49,7 +48,7 @@ for i in $(seq 1 $MAX_RETRIES); do
         TUNNEL_ACTIVE=true
         break
     fi
-    log_warn "Service not yet active (attempt ${i}/${MAX_RETRIES}). Waiting ${RETRY_INTERVAL}s..."
+    log_warn "Not yet active (attempt ${i}/${MAX_RETRIES}). Waiting ${RETRY_INTERVAL}s..."
     sleep $RETRY_INTERVAL
 done
 

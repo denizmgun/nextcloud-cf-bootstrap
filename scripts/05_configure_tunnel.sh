@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 05_configure_tunnel.sh — Collect Cloudflare Tunnel credentials and write config.
-# The tunnel token is stored ONLY in ~/.cloudflared/.env (mode 600).
+# 05_configure_tunnel.sh — Authenticate with Cloudflare, create a named tunnel, route DNS.
+# Uses: cloudflared tunnel login → tunnel create → tunnel route dns
+# No manual token retrieval required.
 set -euo pipefail
 trap 'log_error "Error in ${BASH_SOURCE[0]} at line ${LINENO}"' ERR
 
@@ -10,65 +11,91 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 ENV_FILE="${HOME}/.nextcloud/.env"
 CF_DIR="${HOME}/.cloudflared"
-CF_ENV_FILE="${CF_DIR}/.env"
 CF_CONFIG="${CF_DIR}/config.yml"
+CF_CERT="${CF_DIR}/cert.pem"
 
 log_info "Step 05: Configure Cloudflare Tunnel"
 
-# ── Prerequisite ──────────────────────────────────────────────────────────────
 if ! command_exists cloudflared; then
     log_error "cloudflared is not installed. Run script 02 first."
     exit 1
 fi
 
-# ── Idempotency ───────────────────────────────────────────────────────────────
-if [[ -f "$CF_CONFIG" ]]; then
-    OVERWRITE=""
-    prompt_yes_no OVERWRITE \
-        "Tunnel config already exists at ${CF_CONFIG}. Overwrite?"
-    if [[ "$OVERWRITE" != "yes" ]]; then
-        log_info "Keeping existing tunnel config."
-        exit 0
+# ── Authenticate ──────────────────────────────────────────────────────────────
+if [[ -f "$CF_CERT" ]]; then
+    log_info "Cloudflare credentials found at ${CF_CERT}. Skipping login."
+else
+    echo ""
+    log_info "A browser link will be printed below. Open it to authorise cloudflared."
+    log_info "On a headless server: copy the URL and open it on another device."
+    echo ""
+    cloudflared tunnel login
+fi
+
+# ── Check for existing tunnels ────────────────────────────────────────────────
+EXISTING_JSON="$(cloudflared tunnel list --output json 2>/dev/null || echo '[]')"
+EXISTING_COUNT="$(echo "$EXISTING_JSON" \
+    | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)"
+
+if [[ "$EXISTING_COUNT" -gt 0 ]]; then
+    echo ""
+    log_warn "${EXISTING_COUNT} existing tunnel(s) found on this Cloudflare account:"
+    echo "$EXISTING_JSON" | python3 -c "
+import sys, json
+for t in json.load(sys.stdin):
+    print(f\"  {t['id']}  {t['name']}\")
+"
+    echo ""
+    log_warn "Stale tunnels will split traffic — requests may be routed to the old machine."
+    log_warn "Run  sudo bash scripts/purge_cf_tunnels.sh  to remove them first."
+    echo ""
+    CONTINUE=""
+    prompt_yes_no CONTINUE "Create a new tunnel alongside the existing one(s) anyway?"
+    if [[ "$CONTINUE" != "yes" ]]; then
+        log_info "Aborted. Run purge_cf_tunnels.sh to clean up, then re-run this script."
+        exit 1
     fi
 fi
 
-# ── Prompts ───────────────────────────────────────────────────────────────────
-echo ""
-echo "You need the Tunnel token from: Cloudflare Zero Trust > Networks > Tunnels"
-echo "Create or select a tunnel, then copy the token shown in the 'Install connector' step."
-echo ""
+# ── Create tunnel ─────────────────────────────────────────────────────────────
+TUNNEL_NAME=""
+prompt_optional TUNNEL_NAME \
+    "Name for this tunnel (shown in the Zero Trust dashboard)" "nextcloud"
 
-CLOUDFLARE_TUNNEL_TOKEN=""
+log_info "Creating tunnel '${TUNNEL_NAME}'..."
+cloudflared tunnel create "$TUNNEL_NAME"
+
+# Extract the ID of the just-created tunnel
+TUNNEL_ID="$(cloudflared tunnel list --output json 2>/dev/null \
+    | python3 -c "
+import sys, json
+tunnels = json.load(sys.stdin)
+matches = [t['id'] for t in tunnels if t['name'] == '${TUNNEL_NAME}']
+print(matches[0] if matches else '')
+" 2>/dev/null || true)"
+
+if [[ -z "$TUNNEL_ID" ]]; then
+    log_error "Could not determine Tunnel ID for '${TUNNEL_NAME}' after creation."
+    exit 1
+fi
+log_info "Tunnel created. ID: ${TUNNEL_ID}"
+
+# ── Hostnames ─────────────────────────────────────────────────────────────────
 NC_HOSTNAME=""
 ADMIN_HOSTNAME=""
-
-prompt_required CLOUDFLARE_TUNNEL_TOKEN \
-    "Cloudflare Tunnel token"
 prompt_required NC_HOSTNAME \
     "Public hostname for Nextcloud (e.g. nextcloud.example.com)"
 prompt_required ADMIN_HOSTNAME \
     "Public hostname for AIO admin panel (e.g. nextcloud-admin.example.com)"
 
-# ── Extract Tunnel ID from JWT ────────────────────────────────────────────────
-# The token is a JWT; field "t" in the payload holds the Tunnel UUID.
-TUNNEL_ID=""
-if command_exists python3; then
-    TUNNEL_ID="$(echo "$CLOUDFLARE_TUNNEL_TOKEN" \
-        | cut -d. -f2 \
-        | base64 --decode 2>/dev/null \
-        | python3 -c "import sys, json; print(json.load(sys.stdin).get('t',''))" 2>/dev/null \
-        || true)"
-fi
+# ── Route DNS ─────────────────────────────────────────────────────────────────
+log_info "Routing DNS: ${NC_HOSTNAME} → ${TUNNEL_NAME}"
+cloudflared tunnel route dns "$TUNNEL_NAME" "$NC_HOSTNAME"
 
-if [[ -z "$TUNNEL_ID" ]]; then
-    log_warn "Could not extract Tunnel ID automatically from token."
-    prompt_required TUNNEL_ID \
-        "Enter your Tunnel ID (UUID shown in the Zero Trust dashboard)"
-fi
+log_info "Routing DNS: ${ADMIN_HOSTNAME} → ${TUNNEL_NAME}"
+cloudflared tunnel route dns "$TUNNEL_NAME" "$ADMIN_HOSTNAME"
 
-log_info "Tunnel ID: ${TUNNEL_ID}"
-
-# ── Write config files ────────────────────────────────────────────────────────
+# ── Write config.yml ──────────────────────────────────────────────────────────
 mkdir -p "$CF_DIR"
 chmod 700 "$CF_DIR"
 
@@ -86,14 +113,10 @@ sed \
 chmod 600 "$CF_CONFIG"
 log_info "Wrote tunnel config to ${CF_CONFIG}"
 
-# Store token in its own restricted file — NEVER write to the shared .env
-printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$CLOUDFLARE_TUNNEL_TOKEN" > "$CF_ENV_FILE"
-chmod 600 "$CF_ENV_FILE"
-log_info "Tunnel token stored in ${CF_ENV_FILE} (mode 600)"
-
-# Write non-secret values to shared .env
+# ── Persist to .env ───────────────────────────────────────────────────────────
 env_set "NC_HOSTNAME"    "$NC_HOSTNAME"    "$ENV_FILE"
 env_set "ADMIN_HOSTNAME" "$ADMIN_HOSTNAME" "$ENV_FILE"
 env_set "TUNNEL_ID"      "$TUNNEL_ID"      "$ENV_FILE"
+env_set "TUNNEL_NAME"    "$TUNNEL_NAME"    "$ENV_FILE"
 
 log_info "Tunnel configuration complete."

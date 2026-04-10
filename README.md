@@ -68,12 +68,12 @@ Each numbered script is independently runnable. The master script calls them in 
 | 02 | `02_install_cloudflared.sh` | Installs cloudflared (arch-aware: amd64 / arm64) |
 | 03 | `03_prompt_rclone.sh` | Asks whether you want remote backup storage |
 | 04 | `04_install_rclone.sh` | Installs rclone + FUSE3 *(skipped if you said no)* |
-| 05 | `05_configure_tunnel.sh` | Collects your tunnel token and hostnames; writes `~/.cloudflared/config.yml` |
+| 05 | `05_configure_tunnel.sh` | `tunnel login` → `tunnel create` → `tunnel route dns`; writes `~/.cloudflared/config.yml` |
 | 06 | `06_configure_rclone.sh` | Interactive rclone remote setup; creates a systemd mount unit *(skipped if you said no)* |
 | 07 | `07_configure_nextcloud.sh` | Collects data/backup paths; renders `~/.nextcloud/docker-compose.yml` |
 | 08 | `08_connect_tunnel.sh` | Installs cloudflared as a systemd service and verifies the tunnel is live |
-| 09 | `09_run_nextcloud.sh` | Pulls and starts Nextcloud AIO; waits for the container to become healthy |
-| 10 | `10_secure_admin.sh` | Retrieves the AIO initial passphrase; guides Cloudflare Access setup |
+| 09 | `09_protect_adminpanel.sh` | Checks Cloudflare Access is active for the AIO adminpanel; loops to let you set it up before proceeding |
+| 10 | `10_run_nextcloud.sh` | Pulls and starts Nextcloud AIO; waits for the container to become healthy |
 
 ### Running a single step
 
@@ -89,8 +89,9 @@ sudo bash scripts/05_configure_tunnel.sh
 |------|----------|------|
 | `~/.nextcloud/.env` | All non-secret config values | `600` |
 | `~/.nextcloud/docker-compose.yml` | Rendered Nextcloud AIO compose file | `600` |
+| `~/.cloudflared/cert.pem` | Cloudflare account credentials (from `tunnel login`) | `600` |
+| `~/.cloudflared/<tunnel-id>.json` | Tunnel credentials (from `tunnel create`) | `600` |
 | `~/.cloudflared/config.yml` | Tunnel ingress config | `600` |
-| `~/.cloudflared/.env` | Tunnel token (never written elsewhere) | `600` |
 | `/etc/systemd/system/rclone-backup-mount.service` | rclone systemd mount unit | system default |
 
 ---
