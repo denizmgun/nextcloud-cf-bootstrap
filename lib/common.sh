@@ -70,6 +70,7 @@ command_exists() { command -v "$1" &>/dev/null; }
 # env_set <KEY> <VALUE> <FILE>
 # Idempotently writes or updates KEY=VALUE in FILE.
 # Creates the file (and parent directories) if necessary, mode 600.
+# Uses a temp-file + mv pattern (atomic write, no sed delimiter collisions).
 env_set() {
     local key="$1"
     local value="$2"
@@ -77,11 +78,25 @@ env_set() {
     mkdir -p "$(dirname "$file")"
     touch "$file"
     chmod 600 "$file"
+
+    local tmp
+    tmp="$(mktemp "${file}.XXXXXX")"
+    chmod 600 "$tmp"
+
     if grep -q "^${key}=" "$file" 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+        while IFS= read -r line; do
+            if [[ "$line" == "${key}="* ]]; then
+                printf '%s=%s\n' "$key" "$value"
+            else
+                printf '%s\n' "$line"
+            fi
+        done < "$file" > "$tmp"
     else
-        echo "${key}=${value}" >> "$file"
+        cp "$file" "$tmp"
+        printf '%s=%s\n' "$key" "$value" >> "$tmp"
     fi
+
+    mv "$tmp" "$file"
 }
 
 # require_env <FILE> <KEY>
