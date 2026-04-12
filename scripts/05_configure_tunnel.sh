@@ -46,48 +46,79 @@ EXISTING_JSON="$(cloudflared tunnel list --output json 2>/dev/null || echo '[]')
 EXISTING_COUNT="$(echo "$EXISTING_JSON" \
     | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)"
 
+TUNNEL_NAME=""
+TUNNEL_ID=""
+
 if [[ "$EXISTING_COUNT" -gt 0 ]]; then
     echo ""
-    log_warn "${EXISTING_COUNT} existing tunnel(s) found on this Cloudflare account:"
+    log_info "${EXISTING_COUNT} existing tunnel(s) found on this Cloudflare account:"
     echo "$EXISTING_JSON" | python3 -c "
 import sys, json
-for t in json.load(sys.stdin):
-    print(f\"  {t['id']}  {t['name']}\")
+for i, t in enumerate(json.load(sys.stdin), 1):
+    print(f\"  [{i}] {t['name']}  ({t['id']})\")
 "
     echo ""
-    log_warn "Stale tunnels will split traffic — requests may be routed to the old machine."
-    log_warn "Run  sudo bash scripts/purge_cf_tunnels.sh  to remove them first."
+    echo "  Options:"
+    echo "    u) Use an existing tunnel"
+    echo "    n) Create a new tunnel"
+    echo "    a) Abort (run purge_cf_tunnels.sh to clean up first)"
     echo ""
-    CONTINUE=""
-    prompt_yes_no CONTINUE "Create a new tunnel alongside the existing one(s) anyway?"
-    if [[ "$CONTINUE" != "yes" ]]; then
-        log_info "Aborted. Run purge_cf_tunnels.sh to clean up, then re-run this script."
-        exit 1
+
+    TUNNEL_ACTION=""
+    while true; do
+        read -rp "$(echo -e "${_CYAN}Choice [u/n/a]${_RESET}: ")" TUNNEL_ACTION
+        case "${TUNNEL_ACTION,,}" in
+            u) break ;;
+            n) break ;;
+            a)
+                log_info "Aborted. Run  sudo bash scripts/purge_cf_tunnels.sh  to clean up, then re-run."
+                exit 1
+                ;;
+            *) log_warn "Please enter u, n, or a." ;;
+        esac
+    done
+
+    if [[ "${TUNNEL_ACTION,,}" == "u" ]]; then
+        # ── Reuse existing tunnel ─────────────────────────────────────────────
+        while true; do
+            prompt_required TUNNEL_NAME "Enter the exact name of the tunnel to reuse"
+            TUNNEL_ID="$(echo "$EXISTING_JSON" | python3 -c "
+import sys, json
+tunnels = json.load(sys.stdin)
+matches = [t['id'] for t in tunnels if t['name'] == '${TUNNEL_NAME}']
+print(matches[0] if matches else '')
+" 2>/dev/null || true)"
+            if [[ -n "$TUNNEL_ID" ]]; then
+                log_info "Reusing tunnel '${TUNNEL_NAME}' (ID: ${TUNNEL_ID})."
+                break
+            fi
+            log_warn "No tunnel named '${TUNNEL_NAME}' found. Check the name and try again."
+        done
     fi
 fi
 
-# ── Create tunnel ─────────────────────────────────────────────────────────────
-TUNNEL_NAME=""
-prompt_optional TUNNEL_NAME \
-    "Name for this tunnel (shown in the Zero Trust dashboard)" "nextcloud"
+# ── Create new tunnel (if not reusing) ───────────────────────────────────────
+if [[ -z "$TUNNEL_ID" ]]; then
+    prompt_optional TUNNEL_NAME \
+        "Name for this tunnel (shown in the Zero Trust dashboard)" "nextcloud"
 
-log_info "Creating tunnel '${TUNNEL_NAME}'..."
-cloudflared tunnel create "$TUNNEL_NAME"
+    log_info "Creating tunnel '${TUNNEL_NAME}'..."
+    cloudflared tunnel create "$TUNNEL_NAME"
 
-# Extract the ID of the just-created tunnel
-TUNNEL_ID="$(cloudflared tunnel list --output json 2>/dev/null \
-    | python3 -c "
+    TUNNEL_ID="$(cloudflared tunnel list --output json 2>/dev/null \
+        | python3 -c "
 import sys, json
 tunnels = json.load(sys.stdin)
 matches = [t['id'] for t in tunnels if t['name'] == '${TUNNEL_NAME}']
 print(matches[0] if matches else '')
 " 2>/dev/null || true)"
 
-if [[ -z "$TUNNEL_ID" ]]; then
-    log_error "Could not determine Tunnel ID for '${TUNNEL_NAME}' after creation."
-    exit 1
+    if [[ -z "$TUNNEL_ID" ]]; then
+        log_error "Could not determine Tunnel ID for '${TUNNEL_NAME}' after creation."
+        exit 1
+    fi
+    log_info "Tunnel created. ID: ${TUNNEL_ID}"
 fi
-log_info "Tunnel created. ID: ${TUNNEL_ID}"
 
 # ── Hostnames ─────────────────────────────────────────────────────────────────
 NC_HOSTNAME=""
