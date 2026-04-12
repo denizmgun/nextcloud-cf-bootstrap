@@ -42,7 +42,7 @@ if systemctl list-unit-files cloudflared.service &>/dev/null \
     log_info "cloudflared service unit already installed. Skipping service install."
 else
     log_info "Installing cloudflared as a systemd service..."
-    cloudflared --config /etc/cloudflared/config.yml service instal
+    cloudflared --config /etc/cloudflared/config.yml service install
 fi
 
 log_info "Enabling and restarting cloudflared..."
