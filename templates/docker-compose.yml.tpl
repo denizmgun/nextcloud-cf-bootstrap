@@ -3,7 +3,7 @@
 # Variables substituted: NC_DOMAIN, NC_DATADIR, NC_TIMEZONE, BACKUP_LOCATION
 services:
   nextcloud-aio-mastercontainer:
-    image: ghcr.io/nextcloud/all-in-one:latest
+    image: nextcloud/all-in-one:latest
     init: true
     restart: always
     container_name: nextcloud-aio-mastercontainer
