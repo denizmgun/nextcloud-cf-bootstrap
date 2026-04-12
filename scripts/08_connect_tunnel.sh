@@ -36,8 +36,9 @@ else
     cloudflared service install
 fi
 
-log_info "Enabling and starting cloudflared..."
-systemctl enable --now cloudflared
+log_info "Enabling and restarting cloudflared..."
+systemctl enable cloudflared
+systemctl restart cloudflared
 
 # ── Poll for service health ───────────────────────────────────────────────────
 log_info "Waiting for cloudflared to become active (up to $((MAX_RETRIES * RETRY_INTERVAL))s)..."
