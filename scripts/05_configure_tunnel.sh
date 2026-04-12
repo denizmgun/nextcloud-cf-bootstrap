@@ -82,6 +82,19 @@ print(matches[0] if matches else '')
 " 2>/dev/null || true)"
             if [[ -n "$TUNNEL_ID" ]]; then
                 log_info "Reusing tunnel '${TUNNEL_NAME}' (ID: ${TUNNEL_ID})."
+
+                # Fetch credentials JSON if missing — happens when reusing a tunnel
+                # created on a different machine. Requires cloudflared >= 2022.3.0.
+                CRED_FILE="${CF_DIR}/${TUNNEL_ID}.json"
+                if [[ ! -f "$CRED_FILE" ]]; then
+                    log_warn "Credentials file not found at ${CRED_FILE}."
+                    log_info "Fetching credentials from Cloudflare via 'tunnel token'..."
+                    cloudflared tunnel token --cred-file "$CRED_FILE" "$TUNNEL_NAME"
+                    chmod 600 "$CRED_FILE"
+                    log_info "Credentials saved to ${CRED_FILE}."
+                else
+                    log_info "Credentials file already present at ${CRED_FILE}."
+                fi
                 break
             fi
             log_warn "No tunnel named '${TUNNEL_NAME}' found. Check the name and try again."
