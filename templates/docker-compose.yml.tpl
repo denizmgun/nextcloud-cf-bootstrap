@@ -28,6 +28,8 @@ services:
       - NC_DOMAIN={{NC_DOMAIN}}
       # Absolute path where Nextcloud stores user data inside the container
       - NEXTCLOUD_DATADIR={{NC_DATADIR}}
+      # Absolute host path for AIO-managed backups
+      - NEXTCLOUD_BACKUP_MOUNTPOINT={{BACKUP_LOCATION}}
       - TZ={{NC_TIMEZONE}}
       - AIO_DISABLE_BACKUP_SECTION=false
       - BACKUP_RESTORE_RETENTION_DAYS=7
