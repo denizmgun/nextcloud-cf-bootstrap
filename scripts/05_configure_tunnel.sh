@@ -32,14 +32,6 @@ else
     cloudflared tunnel login
 fi
 
-# cloudflared tunnel login writes cert.pem to ~/.cloudflared/ but subsequent
-# commands (tunnel list, tunnel create, the systemd service) look in
-# /etc/cloudflared/ when ~ resolves differently or when running as a service.
-# Copying here makes the cert discoverable in all contexts from this point on.
-mkdir -p /etc/cloudflared
-cp "$CF_CERT" /etc/cloudflared/cert.pem
-chmod 600 /etc/cloudflared/cert.pem
-log_info "Staged cert.pem to /etc/cloudflared/"
 
 # ── Check for existing tunnels ────────────────────────────────────────────────
 EXISTING_JSON="$(cloudflared tunnel list --output json 2>/dev/null || echo '[]')"
@@ -153,11 +145,6 @@ sed \
 chmod 600 "$CF_CONFIG"
 log_info "Wrote tunnel config to ${CF_CONFIG}"
 
-# Also place config in /etc/cloudflared/ — the path cloudflared service install
-# hardwires into the systemd unit, and the fallback cloudflared itself searches.
-cp "$CF_CONFIG" /etc/cloudflared/config.yml
-chmod 600 /etc/cloudflared/config.yml
-log_info "Staged config.yml to /etc/cloudflared/"
 
 # ── Persist to .env ───────────────────────────────────────────────────────────
 env_set "NC_HOSTNAME"    "$NC_HOSTNAME"    "$ENV_FILE"
