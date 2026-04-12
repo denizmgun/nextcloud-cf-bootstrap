@@ -27,6 +27,15 @@ if [[ ! -f "$CF_CERT" ]]; then
     exit 1
 fi
 
+# ── Stage config for systemd service ─────────────────────────────────────────
+# `cloudflared service install` always hardwires /etc/cloudflared/config.yml
+# in the unit regardless of any --config flag. Copy it there so the service
+# finds it. The credentials JSON stays authoritative at /root/.cloudflared/.
+mkdir -p /etc/cloudflared
+cp "$CF_CONFIG" /etc/cloudflared/config.yml
+chmod 600 /etc/cloudflared/config.yml
+log_info "Copied config.yml to /etc/cloudflared/"
+
 # ── Install as systemd service (idempotent) ───────────────────────────────────
 if systemctl list-unit-files cloudflared.service &>/dev/null \
         && systemctl list-unit-files cloudflared.service | grep -q "cloudflared"; then
